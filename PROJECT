@@ -1,0 +1,9 @@
+domain: vkiedrowski.de
+layout:
+- go.kubebuilder.io/v3
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: logstash-operator-go
+repo: github.com/hendrikkiedrowski/logstash-operator-go
+version: "3"
