@@ -28,7 +28,7 @@ type LogstashSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of Logstash. Edit logstash_types.go to remove/update
+	// ReplicaCount specifies how many replicas we want.
 	ReplicaCount int32 `json:"replicaCount"`
 }
 
@@ -36,14 +36,15 @@ type LogstashSpec struct {
 type LogstashStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Nodes []string `json:"nodes`
+
+	// Nodes shows the nodes that are used.
+	Nodes []string `json:"nodes"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
 // Logstash is the Schema for the logstashes API
-//+kubebuilder:subresource:status
 type Logstash struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
