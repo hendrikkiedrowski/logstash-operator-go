@@ -29,19 +29,21 @@ type LogstashSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Foo is an example field of Logstash. Edit logstash_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	ReplicaCount int32 `json:"replicaCount"`
 }
 
 // LogstashStatus defines the observed state of Logstash
 type LogstashStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Nodes []string `json:"nodes`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 
 // Logstash is the Schema for the logstashes API
+//+kubebuilder:subresource:status
 type Logstash struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
