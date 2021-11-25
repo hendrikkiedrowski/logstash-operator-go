@@ -4,4 +4,4 @@ metadata:
   name: logstash-sample
 spec:
   # Add fields here
-  foo: bar
+  replicaCount: 1
