@@ -141,11 +141,11 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash) *appsv1.StatefulSet {
 	ls := labelsForLogstash(m.Name)
 	replicas := m.Spec.ReplicaCount
-	resources := corev1.ResourceList{}
 	resource_5gb, err := resource.ParseQuantity("1Gi")
 	if err != nil {
 		panic(fmt.Sprintf("cannot parse quantity: %v", err))
 	}
+	resources := make(corev1.ResourceList)
 	resources[corev1.ResourceRequestsStorage] = resource_5gb
 	pvcs := []corev1.PersistentVolumeClaim{
 		{
