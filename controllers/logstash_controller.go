@@ -18,12 +18,14 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -75,15 +77,15 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Check if the deployment already exists, if not create a new one
-	found := &appsv1.Deployment{}
+	found := &appsv1.StatefulSet{}
 	err = r.Get(ctx, types.NamespacedName{Name: logstash.Name, Namespace: logstash.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
 		// Define a new deployment
-		dep := r.deploymentForLogstash(logstash)
-		log.Info("Creating a new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-		err = r.Create(ctx, dep)
+		sfs := r.statefulsetForLogstash(logstash)
+		log.Info("Creating a new Deployment", "Deployment.Namespace", sfs.Namespace, "Deployment.Name", sfs.Name)
+		err = r.Create(ctx, sfs)
 		if err != nil {
-			log.Error(err, "Failed to create new Deployment", "Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
+			log.Error(err, "Failed to create new Deployment", "Deployment.Namespace", sfs.Namespace, "Deployment.Name", sfs.Name)
 			return ctrl.Result{}, err
 		}
 		// Deployment created successfully - return and requeue
@@ -135,17 +137,40 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-// deploymentForLogstash returns a logstash Deployment object
-func (r *LogstashReconciler) deploymentForLogstash(m *logstashv1alpha1.Logstash) *appsv1.Deployment {
+// statefulsetForLogstash returns a logstash Statefulset object
+func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash) *appsv1.StatefulSet {
 	ls := labelsForLogstash(m.Name)
 	replicas := m.Spec.ReplicaCount
+	resources := corev1.ResourceList{}
+	resource_5gb, err := resource.ParseQuantity("1Gi")
+	if err != nil {
+		panic(fmt.Sprintf("cannot parse quantity: %v", err))
+	}
+	resources[corev1.ResourceRequestsStorage] = resource_5gb
+	pvcs := []corev1.PersistentVolumeClaim{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-data", m.Name),
+				Namespace: m.Namespace,
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{
+					corev1.ReadWriteOnce,
+				},
+				Resources: corev1.ResourceRequirements{
+					Requests: resources,
+				},
+			},
+			Status: corev1.PersistentVolumeClaimStatus{},
+		},
+	}
 
-	dep := &appsv1.Deployment{
+	sfs := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.Name,
 			Namespace: m.Namespace,
 		},
-		Spec: appsv1.DeploymentSpec{
+		Spec: appsv1.StatefulSetSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: ls,
@@ -165,11 +190,13 @@ func (r *LogstashReconciler) deploymentForLogstash(m *logstashv1alpha1.Logstash)
 					}},
 				},
 			},
+			VolumeClaimTemplates: pvcs,
+			ServiceName:          fmt.Sprintf("%s-headless", m.Name),
 		},
 	}
 	// Set Logstash instance as the owner and controller
-	ctrl.SetControllerReference(m, dep, r.Scheme)
-	return dep
+	ctrl.SetControllerReference(m, sfs, r.Scheme)
+	return sfs
 }
 
 // labelsForLogstash returns the labels for selecting the resources
