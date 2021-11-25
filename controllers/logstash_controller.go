@@ -45,7 +45,7 @@ type LogstashReconciler struct {
 //+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -76,32 +76,32 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
-	// Check if the deployment already exists, if not create a new one
+	// Check if the stateful set already exists, if not create a new one
 	found := &appsv1.StatefulSet{}
 	err = r.Get(ctx, types.NamespacedName{Name: logstash.Name, Namespace: logstash.Namespace}, found)
 	if err != nil && errors.IsNotFound(err) {
-		// Define a new deployment
+		// Define a new stateful set
 		sfs := r.statefulsetForLogstash(logstash)
-		log.Info("Creating a new Deployment", "Deployment.Namespace", sfs.Namespace, "Deployment.Name", sfs.Name)
+		log.Info("Creating a new Stateful Set", "StatefulSet.Namespace", sfs.Namespace, "StatefulSet.Name", sfs.Name)
 		err = r.Create(ctx, sfs)
 		if err != nil {
-			log.Error(err, "Failed to create new Deployment", "Deployment.Namespace", sfs.Namespace, "Deployment.Name", sfs.Name)
+			log.Error(err, "Failed to create new StatefulSet", "StatefulSet.Namespace", sfs.Namespace, "StatefulSet.Name", sfs.Name)
 			return ctrl.Result{}, err
 		}
-		// Deployment created successfully - return and requeue
+		// Stateful Set created successfully - return and requeue
 		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
-		log.Error(err, "Failed to get Deployment")
+		log.Error(err, "Failed to get Stateful Set")
 		return ctrl.Result{}, err
 	}
 
-	// Ensure the deployment replicaCount is the same as the spec
+	// Ensure the stateful set replicaCount is the same as the spec
 	replicaCount := logstash.Spec.ReplicaCount
 	if *found.Spec.Replicas != replicaCount {
 		found.Spec.Replicas = &replicaCount
 		err = r.Update(ctx, found)
 		if err != nil {
-			log.Error(err, "Failed to update Deployment", "Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
+			log.Error(err, "Failed to update Stateful Set", "StatefulSet.Namespace", found.Namespace, "StatefulSet.Name", found.Name)
 			return ctrl.Result{}, err
 		}
 		// Ask to requeue after 1 minute in order to give enough time for the
@@ -111,7 +111,7 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Update the Logstash status with the pod names
-	// List the pods for this logstash's deployment
+	// List the pods for this logstash's stateful set
 	podList := &corev1.PodList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(logstash.Namespace),
