@@ -37,11 +37,31 @@ spec:
             description: LogstashSpec defines the desired state of Logstash
             properties:
               replicaCount:
+                default: 1
                 description: ReplicaCount specifies how many replicas we want.
                 format: int32
                 type: integer
+              storage:
+                properties:
+                  accessModes:
+                    default:
+                    - ReadWriteOnce
+                    items:
+                      type: string
+                    type: array
+                  size:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    default: 1Gi
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  storageClassName:
+                    default: standard
+                    type: string
+                type: object
             required:
-            - replicaCount
+            - storage
             type: object
           status:
             description: LogstashStatus defines the observed state of Logstash

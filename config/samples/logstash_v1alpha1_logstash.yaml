@@ -5,3 +5,5 @@ metadata:
 spec:
   # Add fields here
   replicaCount: 1
+  storage:
+    storageClassName: standard

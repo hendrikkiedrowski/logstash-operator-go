@@ -25,7 +25,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -141,12 +140,8 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash) *appsv1.StatefulSet {
 	ls := labelsForLogstash(m.Name)
 	replicas := m.Spec.ReplicaCount
-	resource_5gb, err := resource.ParseQuantity("1Gi")
-	if err != nil {
-		panic(fmt.Sprintf("cannot parse quantity: %v", err))
-	}
 	resources := make(corev1.ResourceList)
-	resources[corev1.ResourceRequestsStorage] = resource_5gb
+	resources[corev1.ResourceStorage] = m.Spec.Storage.Size
 	pvcs := []corev1.PersistentVolumeClaim{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -154,9 +149,8 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 				Namespace: m.Namespace,
 			},
 			Spec: corev1.PersistentVolumeClaimSpec{
-				AccessModes: []corev1.PersistentVolumeAccessMode{
-					corev1.ReadWriteOnce,
-				},
+				AccessModes:      m.Spec.Storage.AccessModes,
+				StorageClassName: &m.Spec.Storage.StorageClassName,
 				Resources: corev1.ResourceRequirements{
 					Requests: resources,
 				},

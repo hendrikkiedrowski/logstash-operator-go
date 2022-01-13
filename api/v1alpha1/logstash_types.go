@@ -17,11 +17,22 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+
+type StorageSpec struct {
+	//+kubebuilder:default:=standard
+	StorageClassName string `json:"storageClassName,omitempty"`
+	//+kubebuilder:default:="1Gi"
+	Size resource.Quantity `json:"size,omitempty"`
+	//+kubebuilder:default:={ReadWriteOnce}
+	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
+}
 
 // LogstashSpec defines the desired state of Logstash
 type LogstashSpec struct {
@@ -29,7 +40,9 @@ type LogstashSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// ReplicaCount specifies how many replicas we want.
-	ReplicaCount int32 `json:"replicaCount"`
+	//+kubebuilder:default:=1
+	ReplicaCount int32       `json:"replicaCount,omitempty"`
+	Storage      StorageSpec `json:"storage"`
 }
 
 // LogstashStatus defines the observed state of Logstash
