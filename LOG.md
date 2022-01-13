@@ -1,5 +1,11 @@
 # Log
 
+## 2022-01-13
+
+- Mount logstash configmap
+  - see https://www.elastic.co/guide/en/logstash/current/logstash-settings-file.html
+  - general config not for endpoints, pipelines
+
 ## 2021-11-26
 
 Statefulset is intialized, but resources are not requested correctly.
