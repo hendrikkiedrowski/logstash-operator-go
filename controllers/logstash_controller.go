@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"time"
 
+	logstashv1alpha1 "github.com/hendrikkiedrowski/logstash-operator-go/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,9 +32,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-
-	logstashv1alpha1 "github.com/hendrikkiedrowski/logstash-operator-go/api/v1alpha1"
-	"github.com/prometheus/common/log"
 )
 
 // LogstashReconciler reconciles a Logstash object
@@ -85,6 +83,8 @@ func (r *LogstashReconciler) fetchOrCreateStatefulSet(ctx context.Context, logst
 }
 
 func (r *LogstashReconciler) updateStatefulSet(ctx context.Context, logstash *logstashv1alpha1.Logstash, sfs *appsv1.StatefulSet) (*ctrl.Result, error) {
+	log := ctrllog.FromContext(ctx)
+
 	replicaCount := logstash.Spec.ReplicaCount
 	if *sfs.Spec.Replicas != replicaCount {
 		sfs.Spec.Replicas = &replicaCount
@@ -104,6 +104,8 @@ func (r *LogstashReconciler) updateStatefulSet(ctx context.Context, logstash *lo
 func (r *LogstashReconciler) findLogstashStateChanges(ctx context.Context, logstash *logstashv1alpha1.Logstash) (bool, *ctrl.Result, error) {
 	// Update the Logstash status with the pod names
 	// List the pods for this logstash's stateful set
+	log := ctrllog.FromContext(ctx)
+
 	podList := &corev1.PodList{}
 	listOpts := []client.ListOption{
 		client.InNamespace(logstash.Namespace),
@@ -125,6 +127,8 @@ func (r *LogstashReconciler) findLogstashStateChanges(ctx context.Context, logst
 }
 
 func (r *LogstashReconciler) updateLogstashState(ctx context.Context, logstash *logstashv1alpha1.Logstash) (*ctrl.Result, error) {
+	log := ctrllog.FromContext(ctx)
+
 	err := r.Status().Update(ctx, logstash)
 	if err != nil {
 		log.Error(err, "Failed to update Logstash status")
