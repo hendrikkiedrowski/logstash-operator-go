@@ -32,7 +32,8 @@ rewrite of the famous logstash-operator from bastibrunner/logstash-operator
 
 ## TODOs
 
-- Separate logstash CRD from controller
-- Try out manually mounting a config into a running logstash (or somehow trigger a reload)
-- Create a single pipeline CRD that includes source, filter, and sink
+- [X] Separate logstash CRD from controller
+- [ ] Write tests for logstash CRD reconciler
+- [ ] Try out manually mounting a config into a running logstash (or somehow trigger a reload)
+- [ ] Create a single pipeline CRD that includes source, filter, and sink
 

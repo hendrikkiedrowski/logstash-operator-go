@@ -40,103 +40,6 @@ type LogstashReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-func (r *LogstashReconciler) fetchLogstash(ctx context.Context, namespace types.NamespacedName) (*logstashv1alpha1.Logstash, *ctrl.Result, error) {
-	log := ctrllog.FromContext(ctx)
-
-	logstash := new(logstashv1alpha1.Logstash)
-	err := r.Get(ctx, namespace, logstash)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			log.Info("Logstash resource not found. Ignoring since object must be deleted")
-			return nil, &ctrl.Result{}, nil
-		}
-		log.Error(err, "Failed to get Logstash - requeuing")
-		return nil, &ctrl.Result{}, err
-	}
-	return logstash, nil, nil
-}
-
-func (r *LogstashReconciler) fetchOrCreateStatefulSet(ctx context.Context, logstash *logstashv1alpha1.Logstash) (*appsv1.StatefulSet, *ctrl.Result, error) {
-	log := ctrllog.FromContext(ctx)
-	namespace := types.NamespacedName{Name: logstash.Name, Namespace: logstash.Namespace}
-
-	var foundSfs *appsv1.StatefulSet
-	err := r.Get(ctx, namespace, foundSfs)
-
-	if err != nil && k8serrors.IsNotFound(err) {
-		// Define a new stateful set
-		newSfs := r.statefulsetForLogstash(logstash)
-		log.Info("Creating a new Stateful Set", "StatefulSet.Namespace", newSfs.Namespace, "StatefulSet.Name", newSfs.Name)
-		err = r.Create(ctx, newSfs)
-		if err != nil {
-			log.Error(err, "Failed to create new StatefulSet", "StatefulSet.Namespace", newSfs.Namespace, "StatefulSet.Name", newSfs.Name)
-			return nil, &ctrl.Result{}, err
-		}
-		// Stateful Set created successfully - return and requeue
-		return nil, &ctrl.Result{Requeue: true}, nil
-	} else if err != nil {
-		log.Error(err, "Failed to get Stateful Set")
-		return nil, &ctrl.Result{}, err
-
-	}
-	return foundSfs, nil, nil
-}
-
-func (r *LogstashReconciler) updateStatefulSet(ctx context.Context, logstash *logstashv1alpha1.Logstash, sfs *appsv1.StatefulSet) (*ctrl.Result, error) {
-	log := ctrllog.FromContext(ctx)
-
-	replicaCount := logstash.Spec.ReplicaCount
-	if *sfs.Spec.Replicas != replicaCount {
-		sfs.Spec.Replicas = &replicaCount
-		err := r.Update(ctx, sfs)
-		if err != nil {
-			log.Error(err, "Failed to update Stateful Set", "StatefulSet.Namespace", sfs.Namespace, "StatefulSet.Name", sfs.Name)
-			return &ctrl.Result{}, err
-		}
-		// Ask to requeue after 1 minute in order to give enough time for the
-		// pods be created on the cluster side and the operand be able
-		// to do the next update step accurately.
-		return &ctrl.Result{RequeueAfter: time.Minute}, nil
-	}
-	return nil, nil
-}
-
-func (r *LogstashReconciler) findLogstashStateChanges(ctx context.Context, logstash *logstashv1alpha1.Logstash) (bool, *ctrl.Result, error) {
-	// Update the Logstash status with the pod names
-	// List the pods for this logstash's stateful set
-	log := ctrllog.FromContext(ctx)
-
-	podList := &corev1.PodList{}
-	listOpts := []client.ListOption{
-		client.InNamespace(logstash.Namespace),
-		client.MatchingLabels(labelsForLogstash(logstash.Name)),
-	}
-	if err := r.List(ctx, podList, listOpts...); err != nil {
-		log.Error(err, "Failed to list pods", "Logstash.Namespace", logstash.Namespace, "Logstash.Name", logstash.Name)
-		return false, &ctrl.Result{}, err
-	}
-
-	podNames := getPodNames(podList.Items)
-
-	// Update status.Nodes if needed
-	if !reflect.DeepEqual(podNames, logstash.Status.Nodes) {
-		logstash.Status.Nodes = podNames
-		return true, nil, nil
-	}
-	return false, nil, nil
-}
-
-func (r *LogstashReconciler) updateLogstashState(ctx context.Context, logstash *logstashv1alpha1.Logstash) (*ctrl.Result, error) {
-	log := ctrllog.FromContext(ctx)
-
-	err := r.Status().Update(ctx, logstash)
-	if err != nil {
-		log.Error(err, "Failed to update Logstash status")
-		return &ctrl.Result{}, err
-	}
-	return nil, nil
-}
-
 //+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/finalizers,verbs=update
@@ -180,6 +83,107 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *LogstashReconciler) fetchLogstash(ctx context.Context, namespacedName types.NamespacedName) (*logstashv1alpha1.Logstash, *ctrl.Result, error) {
+	log := ctrllog.FromContext(ctx)
+	log.Info("fetching logstash CRD")
+
+	logstash := new(logstashv1alpha1.Logstash)
+	err := r.Get(ctx, namespacedName, logstash)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			log.Info("Logstash resource not found. Ignoring since object must be deleted")
+			return nil, &ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get Logstash - requeuing")
+		return nil, &ctrl.Result{}, err
+	}
+	return logstash, nil, nil
+}
+
+func (r *LogstashReconciler) fetchOrCreateStatefulSet(ctx context.Context, logstash *logstashv1alpha1.Logstash) (*appsv1.StatefulSet, *ctrl.Result, error) {
+	log := ctrllog.FromContext(ctx)
+	log.Info("fetching or creating stateful set")
+	namespace := types.NamespacedName{Name: logstash.Name, Namespace: logstash.Namespace}
+
+	foundSfs := new(appsv1.StatefulSet)
+	err := r.Get(ctx, namespace, foundSfs)
+
+	if err != nil && k8serrors.IsNotFound(err) {
+		// Define a new stateful set
+		newSfs := r.statefulsetForLogstash(logstash)
+		log.Info("creating a new Stateful Set", "StatefulSet.Namespace", newSfs.Namespace, "StatefulSet.Name", newSfs.Name)
+		err = r.Create(ctx, newSfs)
+		if err != nil {
+			log.Error(err, "failed to create new StatefulSet", "StatefulSet.Namespace", newSfs.Namespace, "StatefulSet.Name", newSfs.Name)
+			return nil, &ctrl.Result{}, err
+		}
+		// Stateful Set created successfully - return and requeue
+		return nil, &ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
+		log.Error(err, "failed to get Stateful Set")
+		return nil, &ctrl.Result{}, err
+	}
+	return foundSfs, nil, nil
+}
+
+func (r *LogstashReconciler) updateStatefulSet(ctx context.Context, logstash *logstashv1alpha1.Logstash, sfs *appsv1.StatefulSet) (*ctrl.Result, error) {
+	log := ctrllog.FromContext(ctx)
+	log.Info("updating stateful set")
+
+	replicaCount := logstash.Spec.ReplicaCount
+	if *sfs.Spec.Replicas != replicaCount {
+		sfs.Spec.Replicas = &replicaCount
+		err := r.Update(ctx, sfs)
+		if err != nil {
+			log.Error(err, "Failed to update Stateful Set", "StatefulSet.Namespace", sfs.Namespace, "StatefulSet.Name", sfs.Name)
+			return &ctrl.Result{}, err
+		}
+		// Ask to requeue after 1 minute in order to give enough time for the
+		// pods be created on the cluster side and the operand be able
+		// to do the next update step accurately.
+		return &ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+	return nil, nil
+}
+
+func (r *LogstashReconciler) findLogstashStateChanges(ctx context.Context, logstash *logstashv1alpha1.Logstash) (bool, *ctrl.Result, error) {
+	// Update the Logstash status with the pod names
+	// List the pods for this logstash's stateful set
+	log := ctrllog.FromContext(ctx)
+	log.Info("finding state changes")
+
+	podList := &corev1.PodList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(logstash.Namespace),
+		client.MatchingLabels(labelsForLogstash(logstash.Name)),
+	}
+	if err := r.List(ctx, podList, listOpts...); err != nil {
+		log.Error(err, "Failed to list pods", "Logstash.Namespace", logstash.Namespace, "Logstash.Name", logstash.Name)
+		return false, &ctrl.Result{}, err
+	}
+
+	podNames := getPodNames(podList.Items)
+
+	// Update status.Nodes if needed
+	if !reflect.DeepEqual(podNames, logstash.Status.Nodes) {
+		logstash.Status.Nodes = podNames
+		return true, nil, nil
+	}
+	return false, nil, nil
+}
+
+func (r *LogstashReconciler) updateLogstashState(ctx context.Context, logstash *logstashv1alpha1.Logstash) (*ctrl.Result, error) {
+	log := ctrllog.FromContext(ctx)
+	log.Info("update state")
+
+	err := r.Status().Update(ctx, logstash)
+	if err != nil {
+		log.Error(err, "Failed to update Logstash status")
+		return &ctrl.Result{}, err
+	}
+	return nil, nil
 }
 
 // statefulsetForLogstash returns a logstash Statefulset object
@@ -252,11 +256,4 @@ func getPodNames(pods []corev1.Pod) []string {
 		podNames = append(podNames, pod.Name)
 	}
 	return podNames
-}
-
-// SetupWithManager sets up the controller with the Manager.
-func (r *LogstashReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&logstashv1alpha1.Logstash{}).
-		Complete(r)
 }
