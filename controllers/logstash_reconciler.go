@@ -40,11 +40,11 @@ type LogstashReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
@@ -201,7 +201,7 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 			Spec: corev1.PersistentVolumeClaimSpec{
 				AccessModes:      m.Spec.Storage.AccessModes,
 				StorageClassName: &m.Spec.Storage.StorageClassName,
-				Resources: corev1.ResourceRequirements{
+				Resources: corev1.VolumeResourceRequirements{
 					Requests: resources,
 				},
 			},
@@ -239,7 +239,10 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 		},
 	}
 	// Set Logstash instance as the owner and controller
-	ctrl.SetControllerReference(m, sfs, r.Scheme)
+	err := ctrl.SetControllerReference(m, sfs, r.Scheme)
+	if err != nil {
+		return nil
+	}
 	return sfs
 }
 
