@@ -225,8 +225,9 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Image: "logstash:7.14.2",
-						Name:  "logstash",
+						Image:           "logstash:8.17.2",
+						ImagePullPolicy: corev1.PullAlways,
+						Name:            "logstash",
 						Ports: []corev1.ContainerPort{{
 							ContainerPort: 9600,
 							Name:          "logstash",
