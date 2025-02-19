@@ -37,5 +37,6 @@ func (m *MasterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 func (r *MasterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&logstashv1alpha1.Logstash{}).
+		Owns(&logstashv1alpha1.LogstashPipeline{}).
 		Complete(r)
 }

@@ -27,6 +27,18 @@ rules:
   - list
   - watch
 - apiGroups:
+    - ""
+  resources:
+    - configmaps
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
   - logstash.vkiedrowski.de
   resources:
   - logstashes
@@ -52,3 +64,23 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+    - logstash.vkiedrowski.de
+  resources:
+    - logstashpipelines
+  verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+- apiGroups:
+    - logstash.vkiedrowski.de
+  resources:
+    - logstashpipelines/status
+  verbs:
+    - get
+    - patch
+    - update

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	logstashv1alpha1 "github.com/hendrikkiedrowski/logstash-operator-go/api/v1alpha1"
@@ -45,6 +46,8 @@ type LogstashReconciler struct {
 // +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashpipelines,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashpipelines/status,verbs=get;update;patch
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
@@ -58,6 +61,10 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	logstash, returnResult, err := r.fetchLogstash(ctx, req.NamespacedName)
 	if returnResult != nil {
 		return *returnResult, err
+	}
+
+	if err := r.reconcilePipelineConfigMap(ctx, logstash); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile pipeline ConfigMap: %w", err)
 	}
 
 	sfs, returnResult, err := r.fetchOrCreateStatefulSet(ctx, logstash)
@@ -102,6 +109,48 @@ func (r *LogstashReconciler) fetchLogstash(ctx context.Context, namespacedName t
 	return logstash, nil, nil
 }
 
+func (r *LogstashReconciler) reconcilePipelineConfigMap(ctx context.Context, logstash *logstashv1alpha1.Logstash) error {
+	// Fetch LogstashPipeline resources
+	log := ctrllog.FromContext(ctx)
+	pipelineList := &logstashv1alpha1.LogstashPipelineList{}
+	if err := r.List(ctx, pipelineList, client.InNamespace(logstash.Namespace)); err != nil {
+		return fmt.Errorf("failed to list LogstashPipelines: %w", err)
+	}
+
+	// Create or update ConfigMap for pipeline configurations
+	pipelineConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-pipeline-config", logstash.Name),
+			Namespace: logstash.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(logstash, logstashv1alpha1.GroupVersion.WithKind("Logstash")),
+			},
+		},
+		Data: make(map[string]string),
+	}
+
+	for _, pipeline := range pipelineList.Items {
+		pipelineConfigMap.Data[fmt.Sprintf("%s.conf", pipeline.Name)] = pipeline.Spec.Config
+		log.Info("Reconciling pipeline %s", pipeline.Name)
+	}
+
+	// Create or update the ConfigMap
+	err := r.Client.Create(ctx, pipelineConfigMap)
+	if err != nil {
+		if k8serrors.IsAlreadyExists(err) {
+			// ConfigMap already exists, update it
+			err = r.Client.Update(ctx, pipelineConfigMap)
+			if err != nil {
+				return fmt.Errorf("failed to update pipeline ConfigMap: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to create pipeline ConfigMap: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (r *LogstashReconciler) fetchOrCreateStatefulSet(ctx context.Context, logstash *logstashv1alpha1.Logstash) (*appsv1.StatefulSet, *ctrl.Result, error) {
 	log := ctrllog.FromContext(ctx)
 	log.Info("fetching or creating stateful set")
@@ -112,7 +161,15 @@ func (r *LogstashReconciler) fetchOrCreateStatefulSet(ctx context.Context, logst
 
 	if err != nil && k8serrors.IsNotFound(err) {
 		// Define a new stateful set
-		newSfs := r.statefulsetForLogstash(logstash)
+		newSfs, err := r.statefulsetForLogstash(ctx, logstash)
+		if err != nil {
+			log.Error(err, "failed to create StatefulSet definition")
+			return nil, &ctrl.Result{}, err
+		}
+		if newSfs == nil {
+			log.Error(nil, "StatefulSet definition is nil")
+			return nil, &ctrl.Result{}, fmt.Errorf("StatefulSet definition is nil")
+		}
 		log.Info("creating a new Stateful Set", "StatefulSet.Namespace", newSfs.Namespace, "StatefulSet.Name", newSfs.Name)
 		err = r.Create(ctx, newSfs)
 		if err != nil {
@@ -187,7 +244,7 @@ func (r *LogstashReconciler) updateLogstashState(ctx context.Context, logstash *
 }
 
 // statefulsetForLogstash returns a logstash Statefulset object
-func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash) *appsv1.StatefulSet {
+func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logstashv1alpha1.Logstash) (*appsv1.StatefulSet, error) {
 	ls := labelsForLogstash(m.Name)
 	replicas := m.Spec.ReplicaCount
 	resources := make(corev1.ResourceList)
@@ -231,7 +288,25 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 							ContainerPort: 9600,
 							Name:          "logstash",
 						}},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      "pipeline-config",
+								MountPath: "/usr/share/logstash/pipeline",
+							},
+						},
 					}},
+					Volumes: []corev1.Volume{
+						{
+							Name: "pipeline-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: fmt.Sprintf("%s-pipeline-config", m.Name),
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 			VolumeClaimTemplates: pvcs,
@@ -241,9 +316,17 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 	// Set Logstash instance as the owner and controller
 	err := ctrl.SetControllerReference(m, sfs, r.Scheme)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to set ControllerReference: %w", err)
 	}
-	return sfs
+	return sfs, nil
+}
+
+func generatePipelinesYML(pipeline []logstashv1alpha1.LogstashPipeline) string {
+	var sb strings.Builder
+	for _, pipeline := range pipeline {
+		sb.WriteString(fmt.Sprintf("- pipeline.id: %s\n  path.config: \"/usr/share/logstash/pipeline/%s.conf\"\n", pipeline.Name, pipeline.Name))
+	}
+	return sb.String()
 }
 
 // labelsForLogstash returns the labels for selecting the resources

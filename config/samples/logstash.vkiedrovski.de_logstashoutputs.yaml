@@ -1,0 +1,11 @@
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: logstash-output
+metadata:
+  name: output1
+  labels:
+    vkiedrowski.de/pipeline: pipeline1
+spec:
+  data: |
+    stdout {
+       codec => rubydebug
+    }

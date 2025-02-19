@@ -34,6 +34,32 @@ type StorageSpec struct {
 	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
 }
 
+// LogstashPipelineSpec defines the desired state of LogstashPipeline
+type LogstashPipelineSpec struct {
+	// Selector is used to associate this pipeline with input and output resources.
+	Selector string `json:"selector"`
+	// Config contains the pipeline configuration
+	Config string `json:"config"`
+}
+
+// LogstashPipeline is the Schema for the logstashpipelines API
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+type LogstashPipeline struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec LogstashPipelineSpec `json:"spec,omitempty"`
+}
+
+// LogstashPipelineList contains a list of LogstashPipeline
+// +kubebuilder:object:root=true
+type LogstashPipelineList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []LogstashPipeline `json:"items"`
+}
+
 // LogstashSpec defines the desired state of Logstash
 type LogstashSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -41,8 +67,9 @@ type LogstashSpec struct {
 
 	// ReplicaCount specifies how many replicas we want.
 	//+kubebuilder:default:=1
-	ReplicaCount int32       `json:"replicaCount,omitempty"`
-	Storage      StorageSpec `json:"storage"`
+	ReplicaCount int32                `json:"replicaCount,omitempty"`
+	Storage      StorageSpec          `json:"storage"`
+	Pipeline     LogstashPipelineSpec `json:"pipeline,omitempty"`
 }
 
 // LogstashStatus defines the observed state of Logstash
@@ -76,5 +103,5 @@ type LogstashList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&Logstash{}, &LogstashList{})
+	SchemeBuilder.Register(&Logstash{}, &LogstashList{}, &LogstashPipeline{}, &LogstashPipelineList{})
 }

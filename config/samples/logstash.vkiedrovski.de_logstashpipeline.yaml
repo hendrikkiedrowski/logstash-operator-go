@@ -1,0 +1,15 @@
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashPipeline
+metadata:
+  name: pipeline-sample1
+spec:
+  selector: vkiedrowski.de/pipeline in (pipeline1)
+  config: |
+    input {
+      beats {
+        port => 5044
+      }
+    }
+    output {
+      stdout { codec => rubydebug }
+    }

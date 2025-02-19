@@ -5,5 +5,7 @@ metadata:
 spec:
   # Add fields here
   replicaCount: 1
+  pipelines:
+    - pipeline-sample1
   storage:
-    storageClassName: standard
+    storageClassName: local-path

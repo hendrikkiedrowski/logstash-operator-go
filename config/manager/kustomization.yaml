@@ -13,5 +13,5 @@ kind: Kustomization
 images:
 - name: controller
   newName: logstash-operator-go
-  newTag: 0.0.3
+  newTag: 0.0.4
 
