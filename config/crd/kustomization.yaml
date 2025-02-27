@@ -3,7 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/logstash.vkiedrowski.de_logstashes.yaml
-- bases/logstash.vkiedrovski.de_logstashpipelines.yaml
+- bases/logstash.vkiedrowski.de_logstashpipelines.yaml
 - bases/logstash.vkiedrovski.de_logstashinputs.yaml
 - bases/logstash.vkiedrovski.de_logstashoutputs.yaml
 #+kubebuilder:scaffold:crdkustomizeresource

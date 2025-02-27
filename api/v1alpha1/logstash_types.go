@@ -36,9 +36,9 @@ type StorageSpec struct {
 
 // LogstashPipelineSpec defines the desired state of LogstashPipeline
 type LogstashPipelineSpec struct {
-	// Selector is used to associate this pipeline with input and output resources.
+	// +kubebuilder:default:="vkiedrowski.de/pipeline in (pipeline1)"
 	Selector string `json:"selector"`
-	// Config contains the pipeline configuration
+	// +kubebuilder:default:="input {\n  beats {\n    port => 5044\n  }\n}\noutput {\n  stdout { codec => rubydebug }\n}"
 	Config string `json:"config"`
 }
 
@@ -67,9 +67,8 @@ type LogstashSpec struct {
 
 	// ReplicaCount specifies how many replicas we want.
 	//+kubebuilder:default:=1
-	ReplicaCount int32                `json:"replicaCount,omitempty"`
-	Storage      StorageSpec          `json:"storage"`
-	Pipeline     LogstashPipelineSpec `json:"pipeline,omitempty"`
+	ReplicaCount int32       `json:"replicaCount,omitempty"`
+	Storage      StorageSpec `json:"storage"`
 }
 
 // LogstashStatus defines the observed state of Logstash

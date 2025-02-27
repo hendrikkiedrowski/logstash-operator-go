@@ -7,7 +7,23 @@ spec:
   config: |
     input {
       beats {
-        port => 5044
+        port => 5045
+      }
+    }
+    output {
+      stdout { codec => rubydebug }
+    }
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashPipeline
+metadata:
+  name: pipeline-sample2
+spec:
+  selector: vkiedrowski.de/pipeline in (pipeline2)
+  config: |
+    input {
+      beats {
+        port => 5046
       }
     }
     output {
