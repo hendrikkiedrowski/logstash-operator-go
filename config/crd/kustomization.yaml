@@ -4,8 +4,9 @@
 resources:
 - bases/logstash.vkiedrowski.de_logstashes.yaml
 - bases/logstash.vkiedrowski.de_logstashpipelines.yaml
-- bases/logstash.vkiedrovski.de_logstashinputs.yaml
-- bases/logstash.vkiedrovski.de_logstashoutputs.yaml
+- bases/logstash.vkiedrowski.de_logstashinputs.yaml
+- bases/logstash.vkiedrowski.de_logstashoutputs.yaml
+- bases/logstash.vkiedrowski.de_logstashfilters.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 #patches:

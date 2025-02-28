@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -118,7 +119,11 @@ func (r *LogstashReconciler) reconcilePipelineConfigMap(ctx context.Context, log
 
 	pipelineConfigData := make(map[string]string)
 	for _, pipeline := range pipelineList.Items {
-		pipelineConfigData[fmt.Sprintf("%s.conf", pipeline.Name)] = pipeline.Spec.Config
+		pipelineConfig, err := r.generatePipelineConfig(ctx, &pipeline)
+		if err != nil {
+			return fmt.Errorf("failed to generate pipeline config for %s: %w", pipeline.Name, err)
+		}
+		pipelineConfigData[fmt.Sprintf("%s.conf", pipeline.Name)] = pipelineConfig
 		log.Info("Reconciling pipeline", "pipelineName", pipeline.Name)
 	}
 
@@ -182,6 +187,59 @@ func generatePipelinesYML(pipelines []logstashv1alpha1.LogstashPipeline) string 
 		sb.WriteString(fmt.Sprintf("- pipeline.id: %s\n  path.config: \"/usr/share/logstash/pipeline/%s.conf\"\n", pipeline.Name, pipeline.Name))
 	}
 	return sb.String()
+}
+
+func (r *LogstashReconciler) generatePipelineConfig(ctx context.Context, pipeline *logstashv1alpha1.LogstashPipeline) (string, error) {
+	var config strings.Builder
+
+	// Convert LabelSelector to Selector
+	selector, err := metav1.LabelSelectorAsSelector(pipeline.Spec.Selector)
+	if err != nil {
+		return "", fmt.Errorf("failed to create selector: %w", err)
+	}
+
+	// Generate input configuration
+	config.WriteString("input {\n")
+	inputList := &logstashv1alpha1.LogstashInputList{}
+	if err := r.List(ctx, inputList, client.InNamespace(pipeline.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return "", fmt.Errorf("failed to list inputs: %w", err)
+	}
+	for _, input := range inputList.Items {
+		config.WriteString(input.Spec.Data)
+		config.WriteString("\n")
+	}
+	config.WriteString("}\n\n")
+
+	// Generate filter configuration
+	config.WriteString("filter {\n")
+	filterList := &logstashv1alpha1.LogstashFilterList{}
+	if err := r.List(ctx, filterList, client.InNamespace(pipeline.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return "", fmt.Errorf("failed to list filters: %w", err)
+	}
+
+	sort.Slice(filterList.Items, func(i, j int) bool {
+		return filterList.Items[i].Spec.Order < filterList.Items[j].Spec.Order
+	})
+	
+	for _, filter := range filterList.Items {
+		config.WriteString(filter.Spec.Data)
+		config.WriteString("\n")
+	}
+	config.WriteString("}\n\n")
+
+	// Generate output configuration
+	config.WriteString("output {\n")
+	outputList := &logstashv1alpha1.LogstashOutputList{}
+	if err := r.List(ctx, outputList, client.InNamespace(pipeline.Namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return "", fmt.Errorf("failed to list outputs: %w", err)
+	}
+	for _, output := range outputList.Items {
+		config.WriteString(output.Spec.Data)
+		config.WriteString("\n")
+	}
+	config.WriteString("}\n")
+
+	return config.String(), nil
 }
 
 func (r *LogstashReconciler) fetchOrCreateStatefulSet(ctx context.Context, logstash *logstashv1alpha1.Logstash) (*appsv1.StatefulSet, *ctrl.Result, error) {

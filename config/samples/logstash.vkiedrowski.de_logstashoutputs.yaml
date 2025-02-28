@@ -1,0 +1,13 @@
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashOutput
+metadata:
+  name: sample-output
+  labels:
+    vkiedrowski.de/environment: dev
+    vkiedrowski.de/product: sink
+    vkiedrowski.de/version: ES
+spec:
+  data: |
+    stdout {
+       codec => rubydebug
+    }

@@ -68,6 +68,9 @@ rules:
     - logstash.vkiedrowski.de
   resources:
     - logstashpipelines
+    - logstashinputs
+    - logstashoutputs
+    - logstashfilters
   verbs:
     - create
     - delete
@@ -80,6 +83,9 @@ rules:
     - logstash.vkiedrowski.de
   resources:
     - logstashpipelines/status
+      - logstashinputs/status
+      - logstashoutputs/status
+      - logstashfilters/status
   verbs:
     - get
     - patch

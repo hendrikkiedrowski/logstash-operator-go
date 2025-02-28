@@ -38,5 +38,8 @@ func (r *MasterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&logstashv1alpha1.Logstash{}).
 		Owns(&logstashv1alpha1.LogstashPipeline{}).
+		Owns(&logstashv1alpha1.LogstashInput{}).
+		Owns(&logstashv1alpha1.LogstashOutput{}).
+		Owns(&logstashv1alpha1.LogstashFilter{}).
 		Complete(r)
 }
