@@ -165,18 +165,26 @@ func (r *LogstashReconciler) reconcilePipelineConfigMap(ctx context.Context, log
 }
 
 func (r *LogstashReconciler) createOrUpdateConfigMap(ctx context.Context, cm *corev1.ConfigMap) error {
-	err := r.Client.Create(ctx, cm)
+	log := ctrllog.FromContext(ctx)
+
+	// Try to get the ConfigMap
+	existingCM := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: cm.Name, Namespace: cm.Namespace}, existingCM)
+
 	if err != nil {
-		if k8serrors.IsAlreadyExists(err) {
-			err = r.Client.Update(ctx, cm)
-			if err != nil {
-				return fmt.Errorf("failed to update ConfigMap: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to create ConfigMap: %w", err)
+		if k8serrors.IsNotFound(err) {
+			// ConfigMap doesn't exist, create it
+			log.Info("Creating ConfigMap", "name", cm.Name, "data", cm.Data)
+			return r.Create(ctx, cm)
 		}
+		// Error getting ConfigMap
+		return fmt.Errorf("failed to get ConfigMap: %w", err)
 	}
-	return nil
+
+	// ConfigMap exists, update it
+	existingCM.Data = cm.Data
+	log.Info("Updating ConfigMap", "name", cm.Name, "data", cm.Data)
+	return r.Update(ctx, existingCM)
 }
 
 func generatePipelinesYML(pipelines []logstashv1alpha1.LogstashPipeline) string {
@@ -220,7 +228,7 @@ func (r *LogstashReconciler) generatePipelineConfig(ctx context.Context, pipelin
 	sort.Slice(filterList.Items, func(i, j int) bool {
 		return filterList.Items[i].Spec.Order < filterList.Items[j].Spec.Order
 	})
-	
+
 	for _, filter := range filterList.Items {
 		config.WriteString(filter.Spec.Data)
 		config.WriteString("\n")
@@ -372,25 +380,46 @@ func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logs
 					Labels: ls,
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Image: "logstash:8.17.2",
-						Name:  "logstash",
-						Ports: []corev1.ContainerPort{{
-							ContainerPort: 9600,
-							Name:          "logstash",
-						}},
-						VolumeMounts: []corev1.VolumeMount{
-							{
-								Name:      "pipeline-config",
-								MountPath: "/usr/share/logstash/pipeline",
-							},
-							{
-								Name:      "pipelines-yml",
-								MountPath: "/usr/share/logstash/config/pipelines.yml",
-								SubPath:   "pipelines.yml",
+					Containers: []corev1.Container{
+						{
+							Image: "logstash:8.17.2",
+							Name:  "logstash",
+							Ports: []corev1.ContainerPort{{
+								ContainerPort: 9600,
+								Name:          "logstash",
+							}},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "pipeline-config",
+									MountPath: "/usr/share/logstash/pipeline",
+								},
+								{
+									Name:      "pipelines-yml",
+									MountPath: "/usr/share/logstash/config/pipelines.yml",
+									SubPath:   "pipelines.yml",
+								},
 							},
 						},
-					}},
+						{
+							Image: "ghcr.io/jimmidyson/configmap-reload:v0.14.0",
+							Name:  "config-reloader",
+							Args: []string{
+								"--volume-dir=/usr/share/logstash/pipeline",
+								"--volume-dir=/usr/share/logstash/config",
+								"--webhook-url=http://localhost:9600/_node/reload",
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "pipeline-config",
+									MountPath: "/usr/share/logstash/pipeline",
+								},
+								{
+									Name:      "pipelines-yml",
+									MountPath: "/usr/share/logstash/config",
+								},
+							},
+						},
+					},
 					Volumes: []corev1.Volume{
 						{
 							Name: "pipeline-config",
