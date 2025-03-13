@@ -139,14 +139,22 @@ type LogstashPipelineList struct {
 }
 
 // LogstashSpec defines the desired state of Logstash
+
+type ConfigReloadSpec struct {
+	//+kubebuilder:default:=false
+	Automatic bool `json:"automatic,omitempty"`
+	Interval  int  `json:"interval,omitempty"`
+}
+
 type LogstashSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// ReplicaCount specifies how many replicas we want.
 	//+kubebuilder:default:=1
-	ReplicaCount int32       `json:"replicaCount,omitempty"`
-	Storage      StorageSpec `json:"storage"`
+	ReplicaCount int32            `json:"replicaCount,omitempty"`
+	Storage      StorageSpec      `json:"storage"`
+	ConfigReload ConfigReloadSpec `json:"configReload,omitempty"`
 }
 
 // LogstashStatus defines the observed state of Logstash

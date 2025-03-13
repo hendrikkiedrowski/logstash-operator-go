@@ -26,6 +26,7 @@ rules:
   - get
   - list
   - watch
+  - delete
 - apiGroups:
     - ""
   resources:
@@ -38,6 +39,13 @@ rules:
     - patch
     - update
     - watch
+- apiGroups:
+    - ""
+  resources:
+    - events
+  verbs:
+    - create
+    - patch
 - apiGroups:
   - logstash.vkiedrowski.de
   resources:

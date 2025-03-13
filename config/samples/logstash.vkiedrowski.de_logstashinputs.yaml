@@ -1,0 +1,53 @@
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashInput
+metadata:
+  name: sample-input
+  labels:
+    vkiedrowski.de/environment: dev
+    vkiedrowski.de/product: source
+    vkiedrowski.de/version: ES
+spec:
+  service:
+    name: pipeline-sample2
+    port: 8080
+    type: ClusterIP
+  data: |
+    pipeline {
+      address => "es-dev1"
+    }
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashInput
+metadata:
+  name: sample-input2
+  labels:
+    vkiedrowski.de/environment: prod
+    vkiedrowski.de/product: source
+    vkiedrowski.de/version: ES
+spec:
+  service:
+    name: pipeline-sample1
+    port: 8080
+    type: ClusterIP
+  data: |
+    pipeline {
+      address => "es-prod1"
+    }
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashInput
+metadata:
+  name: sample-input3
+  labels:
+    vkiedrowski.de/environment: stage
+    vkiedrowski.de/product: source
+    vkiedrowski.de/version: ES
+spec:
+  service:
+    name: pipeline-sample3
+    port: 8080
+    type: ClusterIP
+  data: |
+    pipeline {
+      address => "es-stage1"
+    }

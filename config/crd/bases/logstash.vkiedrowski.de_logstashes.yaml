@@ -37,8 +37,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: LogstashSpec defines the desired state of Logstash
             properties:
+              configReload:
+                properties:
+                  automatic:
+                    default: false
+                    type: boolean
+                  interval:
+                    type: integer
+                type: object
               replicaCount:
                 default: 1
                 description: ReplicaCount specifies how many replicas we want.

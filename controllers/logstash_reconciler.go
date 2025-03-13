@@ -64,7 +64,8 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return *returnResult, err
 	}
 
-	if err := r.reconcilePipelineConfigMap(ctx, logstash); err != nil {
+	_, err = r.reconcilePipelineConfigMap(ctx, logstash)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to reconcile pipeline ConfigMap: %w", err)
 	}
 
@@ -90,6 +91,18 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	/*if pipelineConfigMapsChanged {
+		log := ctrllog.FromContext(ctx)
+		log.Info("Pipelines ConfigMap changed, triggering rolling restart")
+		if err := r.rollingRestart(ctx, logstash); err != nil {
+			log.Error(err, "Failed to trigger rolling restart")
+			return ctrl.Result{}, err
+		}
+		// Requeue to ensure everything is in sync after the restart.  Consider
+		// a longer RequeueAfter if restarts are frequent.
+		return ctrl.Result{Requeue: true, RequeueAfter: 30 * time.Second}, nil
+	}*/
+
 	return ctrl.Result{}, nil
 }
 
@@ -110,18 +123,58 @@ func (r *LogstashReconciler) fetchLogstash(ctx context.Context, namespacedName t
 	return logstash, nil, nil
 }
 
-func (r *LogstashReconciler) reconcilePipelineConfigMap(ctx context.Context, logstash *logstashv1alpha1.Logstash) error {
+func (r *LogstashReconciler) rollingRestart(ctx context.Context, logstash *logstashv1alpha1.Logstash) error {
+	log := ctrllog.FromContext(ctx)
+	log.Info("Starting rolling restart")
+
+	// Get the StatefulSet
+	statefulSet := &appsv1.StatefulSet{}
+	err := r.Get(ctx, types.NamespacedName{Name: logstash.Name, Namespace: logstash.Namespace}, statefulSet)
+	if err != nil {
+		return fmt.Errorf("failed to get StatefulSet: %w", err)
+	}
+
+	// Option 1: Delete all pods - Kubernetes will recreate them one-by-one (rolling restart)
+	//    This is the simplest and most common approach
+
+	// List the pods for this logstash's stateful set
+	podList := &corev1.PodList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(logstash.Namespace),
+		client.MatchingLabels(labelsForLogstash(logstash.Name)),
+	}
+	if err := r.List(ctx, podList, listOpts...); err != nil {
+		log.Error(err, "Failed to list pods", "Logstash.Namespace", logstash.Namespace, "Logstash.Name", logstash.Name)
+		return err
+	}
+
+	for _, pod := range podList.Items {
+		log.Info("Deleting pod", "pod.Name", pod.Name)
+		err := r.Delete(ctx, &pod)
+		if err != nil {
+			log.Error(err, "Failed to delete pod", "pod.Name", pod.Name)
+			return err
+		}
+		// Optionally, add a short delay to avoid overwhelming the API server
+		time.Sleep(500 * time.Millisecond) // Adjust as needed
+	}
+
+	log.Info("Rolling restart initiated by deleting all pods.")
+	return nil
+}
+
+func (r *LogstashReconciler) reconcilePipelineConfigMap(ctx context.Context, logstash *logstashv1alpha1.Logstash) (bool, error) {
 	log := ctrllog.FromContext(ctx)
 	pipelineList := &logstashv1alpha1.LogstashPipelineList{}
 	if err := r.List(ctx, pipelineList, client.InNamespace(logstash.Namespace)); err != nil {
-		return fmt.Errorf("failed to list LogstashPipelines: %w", err)
+		return false, fmt.Errorf("failed to list LogstashPipelines: %w", err)
 	}
 
 	pipelineConfigData := make(map[string]string)
 	for _, pipeline := range pipelineList.Items {
 		pipelineConfig, err := r.generatePipelineConfig(ctx, &pipeline)
 		if err != nil {
-			return fmt.Errorf("failed to generate pipeline config for %s: %w", pipeline.Name, err)
+			return false, fmt.Errorf("failed to generate pipeline config for %s: %w", pipeline.Name, err)
 		}
 		pipelineConfigData[fmt.Sprintf("%s.conf", pipeline.Name)] = pipelineConfig
 		log.Info("Reconciling pipeline", "pipelineName", pipeline.Name)
@@ -138,8 +191,9 @@ func (r *LogstashReconciler) reconcilePipelineConfigMap(ctx context.Context, log
 		Data: pipelineConfigData,
 	}
 
-	if err := r.createOrUpdateConfigMap(ctx, pipelineConfigMap); err != nil {
-		return fmt.Errorf("failed to reconcile pipeline ConfigMap: %w", err)
+	_, err := r.createOrUpdateConfigMap(ctx, pipelineConfigMap)
+	if err != nil {
+		return false, fmt.Errorf("failed to reconcile pipeline ConfigMap: %w", err)
 	}
 
 	// Generate pipelines.yml
@@ -157,34 +211,33 @@ func (r *LogstashReconciler) reconcilePipelineConfigMap(ctx context.Context, log
 		},
 	}
 
-	if err := r.createOrUpdateConfigMap(ctx, pipelinesYMLConfigMap); err != nil {
-		return fmt.Errorf("failed to reconcile pipelines.yml ConfigMap: %w", err)
+	pipelinesYMLChanged, err := r.createOrUpdateConfigMap(ctx, pipelinesYMLConfigMap)
+	if err != nil {
+		return false, fmt.Errorf("failed to reconcile pipelines.yml ConfigMap: %w", err)
 	}
 
-	return nil
+	return pipelinesYMLChanged, nil
 }
 
-func (r *LogstashReconciler) createOrUpdateConfigMap(ctx context.Context, cm *corev1.ConfigMap) error {
+func (r *LogstashReconciler) createOrUpdateConfigMap(ctx context.Context, cm *corev1.ConfigMap) (bool, error) {
 	log := ctrllog.FromContext(ctx)
 
-	// Try to get the ConfigMap
 	existingCM := &corev1.ConfigMap{}
 	err := r.Get(ctx, types.NamespacedName{Name: cm.Name, Namespace: cm.Namespace}, existingCM)
 
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			// ConfigMap doesn't exist, create it
-			log.Info("Creating ConfigMap", "name", cm.Name, "data", cm.Data)
-			return r.Create(ctx, cm)
+			log.Info("Creating ConfigMap", "name", cm.Name)
+			return false, r.Create(ctx, cm)
 		}
-		// Error getting ConfigMap
-		return fmt.Errorf("failed to get ConfigMap: %w", err)
+		return false, fmt.Errorf("failed to get ConfigMap: %w", err)
 	}
 
-	// ConfigMap exists, update it
+	//pipelinesYMLChanged := false
+
 	existingCM.Data = cm.Data
 	log.Info("Updating ConfigMap", "name", cm.Name, "data", cm.Data)
-	return r.Update(ctx, existingCM)
+	return true, r.Update(ctx, existingCM)
 }
 
 func generatePipelinesYML(pipelines []logstashv1alpha1.LogstashPipeline) string {
@@ -365,6 +418,11 @@ func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logs
 		},
 	}
 
+	logstashConfigMap := r.configMapForLogstash(m)
+	if err := r.Create(ctx, logstashConfigMap); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return nil, err
+	}
+
 	sfs := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.Name,
@@ -398,9 +456,14 @@ func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logs
 									MountPath: "/usr/share/logstash/config/pipelines.yml",
 									SubPath:   "pipelines.yml",
 								},
+								{
+									Name:      "logstash-config",
+									MountPath: "/usr/share/logstash/config/logstash.yml",
+									SubPath:   "logstash.yml",
+								},
 							},
 						},
-						{
+						/*{
 							Image: "ghcr.io/jimmidyson/configmap-reload:v0.14.0",
 							Name:  "config-reloader",
 							Args: []string{
@@ -415,10 +478,16 @@ func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logs
 								},
 								{
 									Name:      "pipelines-yml",
-									MountPath: "/usr/share/logstash/config",
+									MountPath: "/usr/share/logstash/config/pipelines.yml",
+									SubPath:   "pipelines.yml",
+								},
+								{
+									Name:      "logstash-config",
+									MountPath: "/usr/share/logstash/config/logstash.yml",
+									SubPath:   "logstash.yml",
 								},
 							},
-						},
+						},*/
 					},
 					Volumes: []corev1.Volume{
 						{
@@ -447,6 +516,16 @@ func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logs
 								},
 							},
 						},
+						{
+							Name: "logstash-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: logstashConfigMap.Name,
+									},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -460,6 +539,18 @@ func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logs
 		return nil, fmt.Errorf("failed to set ControllerReference: %w", err)
 	}
 	return sfs, nil
+}
+
+func (r *LogstashReconciler) configMapForLogstash(m *logstashv1alpha1.Logstash) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-config", m.Name),
+			Namespace: m.Namespace,
+		},
+		Data: map[string]string{
+			"logstash.yml": fmt.Sprintf("config.reload.automatic: %t\nconfig.reload.interval: %ds", m.Spec.ConfigReload.Automatic, m.Spec.ConfigReload.Interval),
+		},
+	}
 }
 
 // labelsForLogstash returns the labels for selecting the resources

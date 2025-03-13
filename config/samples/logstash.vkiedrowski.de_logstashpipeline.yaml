@@ -1,0 +1,43 @@
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashPipeline
+metadata:
+  name: pipeline-sample1
+spec:
+  selector:
+    matchExpressions:
+      - {key: vkiedrowski.de/environment, operator: In, values: [prod]}
+      - {key: vkiedrowski.de/product, operator: In, values: [sink, source]}
+      - {key: vkiedrowski.de/version, operator: In, values: [ES]}
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashPipeline
+metadata:
+  name: pipeline-sample2
+spec:
+  selector:
+    matchExpressions:
+      - {key: vkiedrowski.de/environment, operator: In, values: [dev]}
+      - {key: vkiedrowski.de/product, operator: In, values: [sink, source]}
+      - {key: vkiedrowski.de/version, operator: In, values: [ES]}
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashPipeline
+metadata:
+  name: pipeline-sample3
+spec:
+  selector:
+    matchExpressions:
+      - {key: vkiedrowski.de/environment, operator: In, values: [stage]}
+      - {key: vkiedrowski.de/product, operator: In, values: [sink, source]}
+      - {key: vkiedrowski.de/version, operator: In, values: [ES]}
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashPipeline
+metadata:
+  name: pipeline-sample4
+spec:
+  selector:
+    matchExpressions:
+      - {key: vkiedrowski.de/environment, operator: In, values: [stage]}
+      - {key: vkiedrowski.de/product, operator: In, values: [sink, source]}
+      - {key: vkiedrowski.de/version, operator: In, values: [ES]}

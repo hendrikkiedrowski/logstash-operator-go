@@ -1,7 +1,8 @@
 ## Append samples you want in your CSV to this file as resources ##
 resources:
 - logstash_v1alpha1_logstash.yaml
-- logstash.vkiedrovski.de_logstashpipeline.yaml
-- logstash.vkiedrovski.de_logstashoutputs.yaml
-- logstash.vkiedrovski.de_logstashinputs.yaml
+- logstash.vkiedrowski.de_logstashpipeline.yaml
+- logstash.vkiedrowski.de_logstashoutputs.yaml
+- logstash.vkiedrowski.de_logstashinputs.yaml
+- logstash.vkiedrowski.de_logstashfilters.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

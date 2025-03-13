@@ -3,7 +3,10 @@ kind: Logstash
 metadata:
   name: logstash-sample
 spec:
-  # Add fields here
+  configReload:
+    automatic: true
+    interval: 3
   replicaCount: 1
   storage:
     storageClassName: local-path
+
