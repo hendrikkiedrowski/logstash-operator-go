@@ -68,8 +68,10 @@ type LogstashInputList struct {
 // LogstashFilterSpec defines the desired state of LogstashFilter
 type LogstashFilterSpec struct {
 	// +kubebuilder:default:=50
-	Order int    `json:"order"`
-	Data  string `json:"data"`
+	Order int `json:"order"`
+	// +kubebuilder:default:=false
+	FromFile bool   `json:"fromFile,omitempty"`
+	Data     string `json:"data"`
 }
 
 // LogstashFilter is the Schema for the logstashfilters API

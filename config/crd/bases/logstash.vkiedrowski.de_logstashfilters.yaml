@@ -41,6 +41,9 @@ spec:
             properties:
               data:
                 type: string
+              fromFile:
+                default: false
+                type: boolean
               order:
                 default: 50
                 type: integer
