@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package v1alpha1 contains API Schema definitions for the logstash v1alpha1 API group
-//+kubebuilder:object:generate=true
-//+groupName=logstash.vkiedrowski.de
+// +kubebuilder:object:generate=true
+// +groupName=logstash.vkiedrowski.de
 package v1alpha1
 
 import (

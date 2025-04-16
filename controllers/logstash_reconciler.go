@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/client-go/util/retry"
 	"reflect"
 	"time"
 
@@ -40,11 +41,13 @@ type LogstashReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-//+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/finalizers,verbs=update
-//+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashes/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashpipelines,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=logstash.vkiedrowski.de,resources=logstashpipelines/status,verbs=get;update;patch
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
@@ -58,6 +61,10 @@ func (r *LogstashReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	logstash, returnResult, err := r.fetchLogstash(ctx, req.NamespacedName)
 	if returnResult != nil {
 		return *returnResult, err
+	}
+
+	if err = r.reconcilePipelineConfigMap(ctx, logstash); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to reconcile pipeline ConfigMap: %w", err)
 	}
 
 	sfs, returnResult, err := r.fetchOrCreateStatefulSet(ctx, logstash)
@@ -112,7 +119,15 @@ func (r *LogstashReconciler) fetchOrCreateStatefulSet(ctx context.Context, logst
 
 	if err != nil && k8serrors.IsNotFound(err) {
 		// Define a new stateful set
-		newSfs := r.statefulsetForLogstash(logstash)
+		newSfs, err := r.statefulsetForLogstash(ctx, logstash)
+		if err != nil {
+			log.Error(err, "failed to create StatefulSet definition")
+			return nil, &ctrl.Result{}, err
+		}
+		if newSfs == nil {
+			log.Error(nil, "StatefulSet definition is nil")
+			return nil, &ctrl.Result{}, fmt.Errorf("StatefulSet definition is nil")
+		}
 		log.Info("creating a new Stateful Set", "StatefulSet.Namespace", newSfs.Namespace, "StatefulSet.Name", newSfs.Name)
 		err = r.Create(ctx, newSfs)
 		if err != nil {
@@ -132,9 +147,34 @@ func (r *LogstashReconciler) updateStatefulSet(ctx context.Context, logstash *lo
 	log := ctrllog.FromContext(ctx)
 	log.Info("updating stateful set")
 
+	updatedSfs, err := r.statefulsetForLogstash(ctx, logstash)
+	if err != nil {
+		log.Error(err, "Failed to generate updated StatefulSet")
+		return &ctrl.Result{}, err
+	}
+
+	needsUpdate := false
+
+	// Check replica count
 	replicaCount := logstash.Spec.ReplicaCount
 	if *sfs.Spec.Replicas != replicaCount {
+		needsUpdate = true
 		sfs.Spec.Replicas = &replicaCount
+	}
+
+	// Compare volumes by name and content instead of using DeepEqual
+	volumesChanged := compareVolumes(sfs.Spec.Template.Spec.Volumes, updatedSfs.Spec.Template.Spec.Volumes)
+	volumeMountsChanged := compareVolumeMounts(sfs.Spec.Template.Spec.Containers[0].VolumeMounts,
+		updatedSfs.Spec.Template.Spec.Containers[0].VolumeMounts)
+
+	if volumesChanged || volumeMountsChanged {
+		log.Info("Volumes or volume mounts changed", "volumesChanged", volumesChanged, "volumeMountsChanged", volumeMountsChanged)
+		needsUpdate = true
+		sfs.Spec.Template.Spec.Volumes = updatedSfs.Spec.Template.Spec.Volumes
+		sfs.Spec.Template.Spec.Containers[0].VolumeMounts = updatedSfs.Spec.Template.Spec.Containers[0].VolumeMounts
+	}
+
+	if needsUpdate {
 		err := r.Update(ctx, sfs)
 		if err != nil {
 			log.Error(err, "Failed to update Stateful Set", "StatefulSet.Namespace", sfs.Namespace, "StatefulSet.Name", sfs.Name)
@@ -145,7 +185,90 @@ func (r *LogstashReconciler) updateStatefulSet(ctx context.Context, logstash *lo
 		// to do the next update step accurately.
 		return &ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
+
 	return nil, nil
+}
+
+// Helper function to compare volumes by name and configuration
+func compareVolumes(current, desired []corev1.Volume) bool {
+	if len(current) != len(desired) {
+		return true
+	}
+
+	// Create maps for easier comparison by name
+	currentVolumes := make(map[string]corev1.Volume)
+	for _, v := range current {
+		currentVolumes[v.Name] = v
+	}
+
+	for _, desiredVol := range desired {
+		currentVol, exists := currentVolumes[desiredVol.Name]
+		if !exists {
+			return true
+		}
+
+		// Compare ConfigMap sources if they exist
+		if desiredVol.ConfigMap != nil && currentVol.ConfigMap != nil {
+			if desiredVol.ConfigMap.Name != currentVol.ConfigMap.Name {
+				return true
+			}
+
+			// Compare items
+			if len(desiredVol.ConfigMap.Items) != len(currentVol.ConfigMap.Items) {
+				return true
+			}
+
+			// This part compares the actual content of items
+			// Create map of current items for comparison
+			currentItems := make(map[string]string)
+			for _, item := range currentVol.ConfigMap.Items {
+				currentItems[item.Key] = item.Path
+			}
+
+			for _, item := range desiredVol.ConfigMap.Items {
+				path, exists := currentItems[item.Key]
+				if !exists || path != item.Path {
+					return true
+				}
+			}
+		} else if (desiredVol.ConfigMap == nil) != (currentVol.ConfigMap == nil) {
+			// One has a ConfigMap and the other doesn't
+			return true
+		}
+
+		// Add additional comparisons for other volume source types if needed
+	}
+
+	return false
+}
+
+// Helper function to compare volume mounts
+func compareVolumeMounts(current, desired []corev1.VolumeMount) bool {
+	if len(current) != len(desired) {
+		return true
+	}
+
+	// Create maps for easier comparison
+	currentMounts := make(map[string]corev1.VolumeMount)
+	for _, vm := range current {
+		currentMounts[vm.Name] = vm
+	}
+
+	for _, desiredMount := range desired {
+		currentMount, exists := currentMounts[desiredMount.Name]
+		if !exists {
+			return true
+		}
+
+		// Compare important fields
+		if desiredMount.MountPath != currentMount.MountPath ||
+			desiredMount.SubPath != currentMount.SubPath ||
+			desiredMount.ReadOnly != currentMount.ReadOnly {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *LogstashReconciler) findLogstashStateChanges(ctx context.Context, logstash *logstashv1alpha1.Logstash) (bool, *ctrl.Result, error) {
@@ -178,7 +301,20 @@ func (r *LogstashReconciler) updateLogstashState(ctx context.Context, logstash *
 	log := ctrllog.FromContext(ctx)
 	log.Info("update state")
 
-	err := r.Status().Update(ctx, logstash)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Fetch the latest version of Logstash before updating
+		latestLogstash := &logstashv1alpha1.Logstash{}
+		if err := r.Get(ctx, types.NamespacedName{Name: logstash.Name, Namespace: logstash.Namespace}, latestLogstash); err != nil {
+			return err
+		}
+
+		// Update the status
+		latestLogstash.Status = logstash.Status
+
+		// Try to update
+		return r.Status().Update(ctx, latestLogstash)
+	})
+
 	if err != nil {
 		log.Error(err, "Failed to update Logstash status")
 		return &ctrl.Result{}, err
@@ -187,7 +323,7 @@ func (r *LogstashReconciler) updateLogstashState(ctx context.Context, logstash *
 }
 
 // statefulsetForLogstash returns a logstash Statefulset object
-func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash) *appsv1.StatefulSet {
+func (r *LogstashReconciler) statefulsetForLogstash(ctx context.Context, m *logstashv1alpha1.Logstash) (*appsv1.StatefulSet, error) {
 	ls := labelsForLogstash(m.Name)
 	replicas := m.Spec.ReplicaCount
 	resources := make(corev1.ResourceList)
@@ -201,12 +337,89 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 			Spec: corev1.PersistentVolumeClaimSpec{
 				AccessModes:      m.Spec.Storage.AccessModes,
 				StorageClassName: &m.Spec.Storage.StorageClassName,
-				Resources: corev1.ResourceRequirements{
+				Resources: corev1.VolumeResourceRequirements{
 					Requests: resources,
 				},
 			},
 			Status: corev1.PersistentVolumeClaimStatus{},
 		},
+	}
+
+	logstashConfigMap := r.configMapForLogstash(m)
+	if err := r.Create(ctx, logstashConfigMap); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return nil, err
+	}
+
+	pipelineList := &logstashv1alpha1.LogstashPipelineList{}
+	if err := r.List(ctx, pipelineList, client.InNamespace(m.Namespace)); err != nil {
+		return nil, fmt.Errorf("failed to list LogstashPipelines: %w", err)
+	}
+
+	// Create volume mounts for each pipeline
+	volumeMounts := []corev1.VolumeMount{
+		{
+			Name:      "pipelines-yml",
+			MountPath: "/usr/share/logstash/config/pipelines.yml",
+			SubPath:   "pipelines.yml",
+		},
+		{
+			Name:      "logstash-config",
+			MountPath: "/usr/share/logstash/config/logstash.yml",
+			SubPath:   "logstash.yml",
+		},
+	}
+
+	// Create volumes for each pipeline
+	volumes := []corev1.Volume{
+		{
+			Name: "pipelines-yml",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: fmt.Sprintf("%s-pipelines-yml", m.Name),
+					},
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "pipelines.yml",
+							Path: "pipelines.yml",
+						},
+					},
+				},
+			},
+		},
+		{
+			Name: "logstash-config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: logstashConfigMap.Name,
+					},
+				},
+			},
+		},
+	}
+
+	// Add volume mounts and volumes for each pipeline
+	for _, pipeline := range pipelineList.Items {
+		// Add volume mount for this pipeline
+		volumeMount := corev1.VolumeMount{
+			Name:      fmt.Sprintf("pipeline-%s", pipeline.Name),
+			MountPath: fmt.Sprintf("/usr/share/logstash/pipeline-%s", pipeline.Name),
+		}
+		volumeMounts = append(volumeMounts, volumeMount)
+
+		// Add volume for this pipeline
+		volume := corev1.Volume{
+			Name: fmt.Sprintf("pipeline-%s", pipeline.Name),
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: fmt.Sprintf("%s-pipeline-%s-config", m.Name, pipeline.Name),
+					},
+				},
+			},
+		}
+		volumes = append(volumes, volume)
 	}
 
 	sfs := &appsv1.StatefulSet{
@@ -224,14 +437,18 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 					Labels: ls,
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Image: "logstash:7.14.2",
-						Name:  "logstash",
-						Ports: []corev1.ContainerPort{{
-							ContainerPort: 9600,
-							Name:          "logstash",
-						}},
-					}},
+					Containers: []corev1.Container{
+						{
+							Image: "logstash:8.17.2",
+							Name:  "logstash",
+							Ports: []corev1.ContainerPort{{
+								ContainerPort: 9600,
+								Name:          "logstash",
+							}},
+							VolumeMounts: volumeMounts,
+						},
+					},
+					Volumes: volumes,
 				},
 			},
 			VolumeClaimTemplates: pvcs,
@@ -239,8 +456,23 @@ func (r *LogstashReconciler) statefulsetForLogstash(m *logstashv1alpha1.Logstash
 		},
 	}
 	// Set Logstash instance as the owner and controller
-	ctrl.SetControllerReference(m, sfs, r.Scheme)
-	return sfs
+	err := ctrl.SetControllerReference(m, sfs, r.Scheme)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set ControllerReference: %w", err)
+	}
+	return sfs, nil
+}
+
+func (r *LogstashReconciler) configMapForLogstash(m *logstashv1alpha1.Logstash) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-config", m.Name),
+			Namespace: m.Namespace,
+		},
+		Data: map[string]string{
+			"logstash.yml": fmt.Sprintf("config.reload.automatic: %t\nconfig.reload.interval: %ds", m.Spec.ConfigReload.Automatic, m.Spec.ConfigReload.Interval),
+		},
+	}
 }
 
 // labelsForLogstash returns the labels for selecting the resources

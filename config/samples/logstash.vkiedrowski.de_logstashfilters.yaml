@@ -1,0 +1,50 @@
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashFilter
+metadata:
+  name: sample-filter
+  labels:
+    vkiedrowski.de/environment: dev
+    vkiedrowski.de/product: source
+    vkiedrowski.de/version: ES
+spec:
+  order: 60
+  data: |
+    if "accounting" in [tags] {
+        mutate {
+          add_tag => ["es-test6"]
+       }
+    }
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashFilter
+metadata:
+  name: sample-filter1
+  labels:
+    vkiedrowski.de/environment: prod
+    vkiedrowski.de/product: source
+    vkiedrowski.de/version: ES
+spec:
+  order: 70
+  data: |
+    if "accounting" in [tags] {
+        mutate {
+          add_tag => ["es-test5"]
+       }
+    }
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashFilter
+metadata:
+  name: sample-filter2
+  labels:
+    vkiedrowski.de/environment: stage
+    vkiedrowski.de/product: source
+    vkiedrowski.de/version: ES
+spec:
+  order: 80
+  data: |
+    if "accounting" in [tags] {
+        mutate {
+          add_tag => ["es-test7"]
+       }
+    }

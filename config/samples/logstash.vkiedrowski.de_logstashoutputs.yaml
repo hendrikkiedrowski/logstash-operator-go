@@ -1,0 +1,35 @@
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashOutput
+metadata:
+  name: sample-output
+  labels:
+    vkiedrowski.de/environment: dev
+    vkiedrowski.de/product: sink
+    vkiedrowski.de/version: ES
+spec:
+  data: |
+    stdout {}
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashOutput
+metadata:
+  name: sample-output2
+  labels:
+    vkiedrowski.de/environment: prod
+    vkiedrowski.de/product: sink
+    vkiedrowski.de/version: ES
+spec:
+  data: |
+    stdout {}
+---
+apiVersion: logstash.vkiedrowski.de/v1alpha1
+kind: LogstashOutput
+metadata:
+  name: sample-output3
+  labels:
+    vkiedrowski.de/environment: stage
+    vkiedrowski.de/product: sink
+    vkiedrowski.de/version: ES
+spec:
+  data: |
+    stdout {}
